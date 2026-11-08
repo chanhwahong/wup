@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Keep UpgradeCode and component GUIDs stable across versions. -->
+  <Package Name="WUp" Manufacturer="WUp" Language="1033"
+           Version="$(var.ProductVersion)" UpgradeCode="526321CE-E808-45A1-A3CE-C61F0473A17A"
+           Scope="perUser" InstallerVersion="500" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of WUp is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Icon Id="WUpBalloonIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="WUpBalloonIcon" />
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="UserProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="WUp">
+          <Component Id="WUpExecutable" Guid="38C60384-24C3-4FB0-A3AF-4F2F0DA91DA3">
+            <File Id="WUpExe" Source="$(var.ExePath)" Name="wup.exe" />
+            <File Id="IconNotices" Source="THIRD-PARTY-NOTICES.txt" />
+            <File Id="IconLicense" Source="assets\LICENSE-TWEMOJI.txt" Name="LICENSE-TWEMOJI.txt" />
+            <RegistryValue Root="HKCU" Key="Software\WUp\Installer" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+            <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="WUpMenuFolder" Name="WUp">
+        <Component Id="WUpStartMenu" Guid="B621F04C-C918-4E3D-B7F9-079C2F58FCF5">
+          <Shortcut Id="WUpShortcut" Name="WUp" Target="[#WUpExe]" WorkingDirectory="INSTALLFOLDER" Icon="WUpBalloonIcon" IconIndex="0" />
+          <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\WUp\Installer" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="WUpFeature" Title="WUp" Level="1">
+      <ComponentRef Id="WUpExecutable" />
+      <ComponentRef Id="WUpStartMenu" />
+    </Feature>
+  </Package>
+</Wix>

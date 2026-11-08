@@ -1,0 +1,64 @@
+name: Windows build
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: EXE and MSI (x64)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+      DOTNET_ROLL_FORWARD: Major
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Test version numbering
+        run: ./scripts/test-build-version.ps1
+      - name: Assign build version
+        id: version
+        run: ./scripts/set-build-version.ps1 -BuildNumber $env:GITHUB_RUN_NUMBER
+      - name: Install pinned MSI tooling
+        run: |
+          dotnet tool restore
+          if ($LASTEXITCODE -ne 0) { throw 'WiX restore failed' }
+      - name: Test, build and package
+        run: ./scripts/build.ps1 -Installer
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: WUp-${{ steps.version.outputs.version }}-windows-x64-${{ github.run_attempt }}
+          path: |
+            dist/WUp-*-windows-x64.exe
+            dist/WUp-*-windows-x64.msi
+            dist/SHA256SUMS.txt
+            dist/build-info.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Build summary
+        env:
+          WUP_BUILD_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          @"
+          ## WUp v$env:WUP_BUILD_VERSION
+          - Windows x64 portable EXE and MSI installer are attached under **Artifacts**.
+          - Commit: $env:GITHUB_SHA
+          - Build: $env:GITHUB_RUN_NUMBER (attempt $env:GITHUB_RUN_ATTEMPT)
+          "@ >> $env:GITHUB_STEP_SUMMARY

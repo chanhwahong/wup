@@ -1,0 +1,10 @@
+WUp balloon application icon
+
+Balloon graphic from Twemoji, by Twitter, Inc. and other contributors.
+Source: https://github.com/jdecked/twemoji/blob/main/assets/svg/1f388.svg
+License: Creative Commons Attribution 4.0 International (CC BY 4.0).
+https://creativecommons.org/licenses/by/4.0/
+
+The SVG was converted into PNG and multi-resolution ICO files for WUp.
+Full license text: assets/LICENSE-TWEMOJI.txt (source package),
+or LICENSE-TWEMOJI.txt alongside the installed application.

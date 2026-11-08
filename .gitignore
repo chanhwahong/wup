@@ -1,0 +1,7 @@
+/target/
+/dist/
+*.log
+
+/transfer-helpers-*/
+*.wixpdb
+/.codex/
