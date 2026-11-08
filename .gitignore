@@ -5,3 +5,7 @@
 /transfer-helpers-*/
 *.wixpdb
 /.codex/
+/*.exe
+/*.msi
+/SHA256SUMS.txt
+/build-info.json
