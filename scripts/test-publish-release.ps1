@@ -54,4 +54,7 @@ foreach ($case in @('new', 'draft', 'published', 'wrong-tag', 'upload-failure'))
 }
 Remove-Item Function:\gh
 $env:GITHUB_STEP_SUMMARY = $previousSummary
+# Expected failure mocks leave LASTEXITCODE=1. GitHub's pwsh wrapper exits with
+# that code, so clear it only after every assertion has passed.
+$global:LASTEXITCODE = 0
 Write-Host 'Publish tests passed: new release, draft retry, published retry, wrong tag and upload failure.'
