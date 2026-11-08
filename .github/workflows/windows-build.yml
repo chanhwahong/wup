@@ -63,7 +63,7 @@ jobs:
         run: |
           @"
           ## WUp v$env:WUP_BUILD_VERSION
-          - Windows x64 portable EXE and MSI installer are attached under **Artifacts**.
+          - Windows x64 EXE installer and MSI installer are attached under **Artifacts**.
           - Commit: $env:GITHUB_SHA
           - Build: $env:GITHUB_RUN_NUMBER (attempt $env:GITHUB_RUN_ATTEMPT)
           "@ >> $env:GITHUB_STEP_SUMMARY

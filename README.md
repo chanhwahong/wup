@@ -208,7 +208,7 @@ Commit `.github/`, `.config/`, `installer/`, `scripts/`, `build.rs`, `Cargo.toml
 
 After a successful run, open **Actions > Windows build > the run > Artifacts** and download:
 
-- `WUp-<version>-windows-x64.exe`: portable application.
+- `WUp-<version>-windows-x64.exe`: EXE setup wizard with the MSI embedded; double-click to install.
 - `WUp-<version>-windows-x64.msi`: per-user installer with a Start menu shortcut, installed under `%LOCALAPPDATA%\Programs\WUp`. Newer MSI versions upgrade the existing install. Older versions are blocked.
 - `SHA256SUMS.txt` and `build-info.json`: checksums, version, commit SHA and workflow run details.
 
@@ -216,7 +216,7 @@ The workflow uses `base patch + github.run_number`, starting from the checked-in
 
 Version edits happen only in the CI checkout; the workflow does not commit version changes back to the repository. Keep the checked-in base patch stable while using this version line. Change the major/minor baseline when starting a new version line. MSI limits are checked before writing; if the generated patch would exceed 65535, bump the minor version and reset the base patch (the workflow counter continues). Keep the workflow file path stable to preserve its run counter.
 
-The CI job checks formatting, tests version numbering, runs the 25 core tests, builds Rust in Release mode with the locked dependency set, then builds MSI with the pinned WiX CLI. It needs no repository secrets. Packages are retained for 30 days as workflow artifacts. After a successful build, a separate job creates a version tag (for example `v0.1.2`) for the exact built commit and publishes a GitHub Release containing the EXE, MSI, SHA256SUMS.txt and build-info.json. Default-branch builds create normal releases; other branches create prereleases. Only the release job receives `contents: write`, using the built-in GitHub token; no extra secret is needed. The workflow listens to branch pushes only, so generated tags do not trigger another build. Uploads complete in a draft before publication; retries resume drafts and preserve already-published files. Repositories with rules that prevent the built-in token from creating tags/releases must permit this workflow.
+The CI job checks formatting, tests version numbering, runs the 25 core tests, builds Rust in Release mode with the locked dependency set, then builds MSI and a WiX Burn EXE installer with the pinned WiX 4.0.6 CLI and Bal extension. It needs no repository secrets. Packages are retained for 30 days as workflow artifacts. After a successful build, a separate job creates a version tag (for example `v0.1.2`) for the exact built commit and publishes a GitHub Release containing the EXE, MSI, SHA256SUMS.txt and build-info.json. Default-branch builds create normal releases; other branches create prereleases. Only the release job receives `contents: write`, using the built-in GitHub token; no extra secret is needed. The workflow listens to branch pushes only, so generated tags do not trigger another build. Uploads complete in a draft before publication; retries resume drafts and preserve already-published files. Repositories with rules that prevent the built-in token from creating tags/releases must permit this workflow.
 
 ### Local packaging
 
@@ -227,7 +227,7 @@ dotnet tool restore
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Installer
 ```
 
-For EXE only, omit `-Installer` (no .NET SDK required). `scripts/set-build-version.ps1 -BuildNumber N` is intended for a fresh CI checkout and modifies both Cargo files. Local builds otherwise retain the version in Cargo.toml. Commit source and configuration only; do not commit `target/`, `dist/`, or transfer helper directories.
+For a local portable application only, omit `-Installer` (no .NET SDK required); this creates `dist/wup.exe` and does not overwrite the versioned EXE installer. `scripts/set-build-version.ps1 -BuildNumber N` is intended for a fresh CI checkout and modifies both Cargo files. Local builds otherwise retain the version in Cargo.toml. Commit source and configuration only; do not commit `target/`, `dist/`, or transfer helper directories.
 
 ## About
 
@@ -244,3 +244,9 @@ Links open the default browser or mail application only when clicked.
 WUp uses a balloon emoji-style icon in its executable, window/taskbar, Start menu shortcut, installed-app entry, and header. The icon is embedded, so no external image files are required at runtime.
 
 Balloon artwork: Twemoji by Twitter, Inc. and other contributors, licensed under CC BY 4.0. See THIRD-PARTY-NOTICES.txt and assets/LICENSE-TWEMOJI.txt. Commit assets/ and THIRD-PARTY-NOTICES.txt with the rest of the source for CI builds.
+
+### EXE installer
+
+Both versioned release downloads install WUp. The EXE shows a setup wizard and embeds the same MSI distributed alongside it, so it does not need to download the MSI. It uses the balloon icon, the same build version and a stable bundle UpgradeCode for future upgrades. When installed through the EXE, the internal MSI entry is hidden to avoid duplicate installed-app entries. Installing the MSI directly still creates its normal WUp entry.
+
+The application itself is `target/release/wup.exe`; the release EXE is built separately from `installer/Bundle.wxs`. Do not upload the raw application executable as the versioned installer.

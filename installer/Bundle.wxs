@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <!-- Keep the bundle UpgradeCode stable and separate from the MSI identity. -->
+  <Bundle Name="WUp" Manufacturer="WUp" Version="$(var.ProductVersion)"
+          UpgradeCode="BC608594-51CF-4D99-A5AA-9DF2457CB877"
+          IconSourceFile="$(var.IconPath)" DisableModify="yes">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl=""
+          LogoFile="$(var.LogoPath)" ShowVersion="yes" SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+    <Chain>
+      <!-- Embed MSI and hide its internal installed-app entry for EXE installs. -->
+      <MsiPackage Id="WUpMsi" SourceFile="$(var.MsiPath)" Compressed="yes"
+                  Vital="yes" Visible="no" />
+    </Chain>
+  </Bundle>
+</Wix>

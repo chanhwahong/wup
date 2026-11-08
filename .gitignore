@@ -9,3 +9,4 @@
 /*.msi
 /SHA256SUMS.txt
 /build-info.json
+/.wix/

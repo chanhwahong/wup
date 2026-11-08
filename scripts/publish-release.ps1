@@ -38,7 +38,7 @@ if (-not $release) {
 
 Windows x64 WinGet Package Manager.
 
-- Portable application: WUp-$Version-windows-x64.exe
+- EXE installer (MSI embedded): WUp-$Version-windows-x64.exe
 - MSI installer: WUp-$Version-windows-x64.msi
 - Commit: $Commit
 - SHA256SUMS.txt contains package checksums.

@@ -17,13 +17,18 @@ try {
     $version = ([regex]::Match([IO.File]::ReadAllText((Join-Path (Get-Location) 'Cargo.toml')), '(?m)^version = "([0-9.]+)"')).Groups[1].Value
     if (-not $version) { throw 'Package version not found.' }
     New-Item -ItemType Directory -Path 'dist' -Force | Out-Null
-    $exe = "WUp-$version-windows-x64.exe"
-    Copy-Item -LiteralPath 'target\release\wup.exe' -Destination (Join-Path 'dist' $exe) -Force
-    Copy-Item -LiteralPath 'target\release\wup.exe' -Destination 'dist\wup.exe' -Force
-    $packages = @((Join-Path 'dist' $exe))
+    $packages = @()
     if ($Installer) {
         & (Join-Path $PSScriptRoot 'package-msi.ps1') -Version $version
-        $packages += Join-Path 'dist' "WUp-$version-windows-x64.msi"
+        & (Join-Path $PSScriptRoot 'package-exe.ps1') -Version $version
+        $packages = @(
+            (Join-Path 'dist' "WUp-$version-windows-x64.exe"),
+            (Join-Path 'dist' "WUp-$version-windows-x64.msi")
+        )
+    } else {
+        # Local app-only builds never overwrite the versioned EXE installer.
+        Copy-Item -LiteralPath 'target\release\wup.exe' -Destination 'dist\wup.exe' -Force
+        $packages = @('dist\wup.exe')
     }
     $packages | ForEach-Object {
         $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256
