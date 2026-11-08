@@ -8,3 +8,14 @@ https://creativecommons.org/licenses/by/4.0/
 The SVG was converted into PNG and multi-resolution ICO files for WUp.
 Full license text: assets/LICENSE-TWEMOJI.txt (source package),
 or LICENSE-TWEMOJI.txt alongside the installed application.
+
+Filter text input
+
+Adapted from GPUI 0.2.2 examples/input.rs.
+Copyright 2022 - 2025 Zed Industries, Inc.
+Licensed under Apache License 2.0.
+Source: https://github.com/zed-industries/zed
+License: assets/LICENSE-GPUI-INPUT.txt in the source package, or
+LICENSE-GPUI-INPUT.txt alongside the installed application.
+Changes: single-line package filter integration, theme support, horizontal
+caret scrolling, enabled state and IME selection offset handling.

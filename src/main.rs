@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod filter_input;
 mod i18n;
 mod icons;
+mod package_filter;
 mod pixel_snap;
 mod scrollbar;
 mod theme;
@@ -80,6 +82,10 @@ struct Wup {
     show_settings_menu: bool,
     show_about: bool,
     settings_panel: Option<SettingsPanel>,
+    filter_input: gpui::Entity<filter_input::FilterInput>,
+    filter_query: String,
+    filter_terms: Vec<String>,
+    _filter_subscription: gpui::Subscription,
     entries: Vec<Entry>,
     mode: ListMode,
     logs: VecDeque<Text>,
@@ -112,6 +118,11 @@ impl Wup {
                 }
             }
         });
+        let filter_input = cx.new(filter_input::FilterInput::new);
+        let filter_subscription = cx.observe(&filter_input, |this, input, cx| {
+            let query = input.read(cx).text().to_owned();
+            this.apply_filter(query, cx);
+        });
         let mut app = Self {
             smoke_frames: None,
             smoke_gap_checks: None,
@@ -121,6 +132,10 @@ impl Wup {
             show_settings_menu: false,
             show_about: false,
             settings_panel: None,
+            filter_input,
+            filter_query: String::new(),
+            filter_terms: Vec::new(),
+            _filter_subscription: filter_subscription,
             entries: Vec::new(),
             mode: ListMode::Updates,
             logs: VecDeque::new(),
@@ -142,6 +157,28 @@ impl Wup {
         };
         app.refresh(cx);
         app
+    }
+
+    fn matches_filter(&self, entry: &Entry) -> bool {
+        package_filter::matches(&entry.package.name, &entry.package.id, &self.filter_terms)
+    }
+
+    fn apply_filter(&mut self, query: String, cx: &mut Context<Self>) {
+        if self.filter_query == query {
+            return;
+        }
+        self.filter_terms = package_filter::terms(&query);
+        self.filter_query = query;
+        // Hidden selections must not cause unintended updates or uninstalls.
+        for entry in &mut self.entries {
+            if !package_filter::matches(&entry.package.name, &entry.package.id, &self.filter_terms)
+            {
+                entry.selected = false;
+            }
+        }
+        self.scroll.set_offset(point(px(0.), px(0.)));
+        self.dragging = None;
+        cx.notify();
     }
 
     fn locked(&self) -> bool {
@@ -472,6 +509,7 @@ impl Wup {
             .enumerate()
             .filter(|(_, e)| {
                 e.selected
+                    && self.matches_filter(e)
                     && e.can_select()
                     && (operation == Operation::Uninstall || e.can_upgrade())
             })
@@ -484,7 +522,13 @@ impl Wup {
             return;
         }
         for entry in &mut self.entries {
-            if entry.can_select() {
+            if entry.can_select()
+                && package_filter::matches(
+                    &entry.package.name,
+                    &entry.package.id,
+                    &self.filter_terms,
+                )
+            {
                 entry.selected = selected;
             }
         }
@@ -1211,10 +1255,27 @@ impl Render for Wup {
         let language = self.language;
         let selected = self.selected_packages(Operation::Uninstall).len();
         let updatable_selected = self.selected_packages(Operation::Upgrade).len();
-        let updatable = self.entries.iter().filter(|e| e.can_upgrade()).count();
+        let updatable = self
+            .entries
+            .iter()
+            .filter(|e| self.matches_filter(e) && e.can_upgrade())
+            .count();
         let unlocked = !self.locked();
-        let selectable = self.entries.iter().filter(|e| e.can_select()).count();
+        let selectable = self
+            .entries
+            .iter()
+            .filter(|e| self.matches_filter(e) && e.can_select())
+            .count();
         let all_selected = selectable > 0 && selected == selectable;
+        let visible = self
+            .entries
+            .iter()
+            .filter(|e| self.matches_filter(e))
+            .count();
+        let theme = self.theme;
+        self.filter_input.update(cx, |input, cx| {
+            input.configure(theme, language, unlocked, cx)
+        });
         let row_metrics =
             pixel_snap::row_metrics(64.0, self.ui_scale.factor(), window.scale_factor());
         let mut list = div()
@@ -1224,7 +1285,7 @@ impl Render for Wup {
             .h_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll);
-        if self.entries.is_empty() {
+        if visible == 0 {
             list = list.child(
                 div()
                     .h(ui_len(160.))
@@ -1239,6 +1300,11 @@ impl Render for Wup {
                             "목록 조회에 실패했습니다. 실행 로그를 확인해 주세요.",
                             "Could not load packages. Check the execution log.",
                         )
+                    } else if !self.filter_terms.is_empty() {
+                        language.t(
+                            "필터와 일치하는 패키지가 없습니다.",
+                            "No packages match the filter.",
+                        )
                     } else if self.mode == ListMode::All {
                         language.t("설치된 패키지가 없습니다.", "No installed packages found.")
                     } else {
@@ -1249,7 +1315,12 @@ impl Render for Wup {
                     }),
             );
         }
-        for (index, entry) in self.entries.iter().enumerate() {
+        for (index, entry) in self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| self.matches_filter(e))
+        {
             let (label, color) = match &entry.status {
                 Status::Ready if !entry.package.can_uninstall() => (
                     language
@@ -1428,18 +1499,31 @@ impl Render for Wup {
                     .when(self.show_settings_menu && self.pending_uninstall.is_none(), |d| {
                         d.child(deferred(self.render_settings_menu(cx)).with_priority(2))
                     })))
-            .child(div().flex().gap_3().child(metric(palette, language.t("표시한 패키지", "Packages shown"), self.entries.len(), palette.text))
+            .child(div().flex().gap_3().child(metric(palette, language.t("표시한 패키지", "Packages shown"), visible, palette.text))
                 .child(metric(palette, language.t("업데이트 가능", "Update available"), updatable, palette.accent)).child(metric(palette, language.t("선택한 패키지", "Selected packages"), selected, palette.success)))
             .child(div().flex().flex_wrap().items_center().gap_2()
                 .child(button(palette, "select-toggle", if all_selected { language.t("전체 해제", "Deselect all") } else { language.t("전체 선택", "Select all") }, unlocked && selectable > 0, false)
                     .on_click(cx.listener(|this, _, _, cx| {
-                        let all_selected = this.entries.iter().filter(|e| e.can_select()).all(|e| e.selected);
+                        let all_selected = this.entries.iter().filter(|e| this.matches_filter(e) && e.can_select()).all(|e| e.selected);
                         this.set_selection(!all_selected, cx);
                     })))
                 .child(button(palette, "toggle-all", language.t("전체 설치 패키지 보기", "Show all installed packages"), unlocked, false)
                     .when(self.mode == ListMode::All, |d| d.border_color(rgb(palette.accent)).text_color(rgb(palette.accent)))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_mode(cx))))
-                .child(div().flex_1())
+                .child(div().flex().items_center().gap_3().px_3().h(ui_len(42.)).flex_1().min_w(ui_len(200.))
+                    .rounded_md().border_1().border_color(rgb(palette.border)).bg(rgb(palette.surface))
+                    .child(icon(Icon::Search, palette.muted))
+                    .child(div().flex_1().min_w_0().h_full().child(self.filter_input.clone()))
+                    .child(div().text_xs().text_color(rgb(palette.muted)).child(format!("{visible} / {}", self.entries.len())))
+                    .when(!self.filter_query.is_empty(), |d| d.child(div().id("clear-filter").size_6()
+                        .flex().items_center().justify_center().rounded_md()
+                        .when(unlocked, |d| d.cursor_pointer().hover(|style| style.bg(rgb(palette.hover))))
+                        .child(icon(Icon::Close, palette.muted))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if !this.locked() {
+                                this.filter_input.update(cx, |input, cx| { input.set_text("", cx); input.focus(window); });
+                            }
+                        })))))
                 .when(self.busy && !self.scanning, |d| d.child(button(palette, "stop", language.t("완료 후 중단", "Stop after current"), !self.stop.load(Ordering::Relaxed), false)
                     .on_click(cx.listener(|this, _, _, cx| { this.stop.store(true, Ordering::Relaxed); this.message = Text::new("현재 작업이 끝나면 남은 작업을 중단합니다.", "Remaining tasks will stop after the current operation finishes."); cx.notify(); }))))
                 .child(button(palette, "uninstall", format!("{} ({selected})", language.t("제거", "Uninstall")), unlocked && selected > 0, false)
@@ -1598,6 +1682,34 @@ fn smoke_test_menus(view: &gpui::Entity<Wup>, cx: &mut App) {
     });
     let weak = view.downgrade();
     cx.spawn(async move |cx| {
+        // Filtering must retain original entry indices and never operate on hidden rows.
+        weak.update(cx, |app, cx| {
+            app.apply_filter("example.app2".into(), cx);
+            let expected: Vec<_> = app.entries.iter().enumerate()
+                .filter(|(_, e)| app.matches_filter(e) && e.can_select()).map(|(i, _)| i).collect();
+            app.set_selection(true, cx);
+            let selected: Vec<_> = app.selected_packages(Operation::Uninstall).iter().map(|(i, _)| *i).collect();
+            assert!(!selected.is_empty());
+            assert_eq!(selected, expected);
+            app.apply_filter("no-such-package".into(), cx);
+            assert!(app.entries.iter().all(|e| !e.selected));
+            assert!(app.selected_packages(Operation::Upgrade).is_empty());
+            app.apply_filter(String::new(), cx);
+        }).expect("filter smoke-test window must remain alive");
+        for query in ["EXAMPLE.APP2", "no-such-package", ""] {
+            let before = frames.load(Ordering::Relaxed);
+            weak.update(cx, |app, cx| {
+                app.filter_input.update(cx, |input, cx| input.set_text(query, cx));
+                app.apply_filter(query.into(), cx);
+                cx.notify();
+            }).expect("filter smoke-test window must remain alive");
+            for _ in 0..60 {
+                cx.background_executor().timer(Duration::from_millis(50)).await;
+                if frames.load(Ordering::Relaxed) > before { break; }
+            }
+            assert!(frames.load(Ordering::Relaxed) > before, "filtered list did not render");
+        }
+        println!("Package filtering passed: visible-only selection, stable indices, empty results and clearing.");
         for percent in [80, 95, 100, 120] {
             for panel in [
                 None,
@@ -1663,6 +1775,7 @@ fn main() {
     let smoke = std::env::args().any(|arg| arg == "--smoke-test-menus");
     let demo = smoke || std::env::args().any(|arg| arg == "--demo");
     Application::new().run(move |cx: &mut App| {
+        filter_input::bind_keys(cx);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -1682,7 +1795,11 @@ fn main() {
             },
             |window, cx| {
                 let view = cx.new(|cx| Wup::new(demo, cx));
-                if smoke { smoke_test_menus(&view, cx); }
+                if smoke {
+                    let input = view.read(cx).filter_input.clone();
+                    input.update(cx, |input, cx| input.smoke_editing(window, cx));
+                    smoke_test_menus(&view, cx);
+                }
                 let weak = view.downgrade();
                 window.on_window_should_close(cx, move |_, cx| {
                     weak.update(cx, |this, cx| {

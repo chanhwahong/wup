@@ -4,6 +4,7 @@ use gpui::{IntoElement, PathBuilder, Styled, canvas, point, px, rems, rgb};
 #[derive(Clone, Copy)]
 pub enum Icon {
     Refresh,
+    Search,
     Info,
     Mail,
     Link,
@@ -45,6 +46,16 @@ pub fn icon(name: Icon, color: u32) -> impl IntoElement {
                 }
             };
             match name {
+                Icon::Search => {
+                    let circle: Vec<_> = (0..=24)
+                        .map(|i| {
+                            let angle = i as f32 * std::f32::consts::TAU / 24.;
+                            (10. + 6. * angle.cos(), 10. + 6. * angle.sin())
+                        })
+                        .collect();
+                    line(&circle);
+                    line(&[(14.5, 14.5), (21., 21.)]);
+                }
                 Icon::Info => {
                     let circle: Vec<_> = (0..=32)
                         .map(|i| {

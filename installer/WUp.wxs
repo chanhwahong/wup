@@ -15,6 +15,7 @@
           <Component Id="WUpExecutable" Guid="38C60384-24C3-4FB0-A3AF-4F2F0DA91DA3">
             <File Id="WUpExe" Source="$(var.ExePath)" Name="wup.exe" />
             <File Id="IconNotices" Source="THIRD-PARTY-NOTICES.txt" />
+            <File Id="InputLicense" Source="assets\LICENSE-GPUI-INPUT.txt" Name="LICENSE-GPUI-INPUT.txt" />
             <File Id="IconLicense" Source="assets\LICENSE-TWEMOJI.txt" Name="LICENSE-TWEMOJI.txt" />
             <RegistryValue Root="HKCU" Key="Software\WUp\Installer" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
             <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
