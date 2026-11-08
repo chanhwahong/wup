@@ -19,3 +19,12 @@ License: assets/LICENSE-GPUI-INPUT.txt in the source package, or
 LICENSE-GPUI-INPUT.txt alongside the installed application.
 Changes: single-line package filter integration, theme support, horizontal
 caret scrolling, enabled state and IME selection offset handling.
+
+Installer localization
+
+installer/Bundle.en-us.wxl is adapted from WiX Standard Bootstrapper Application.
+Copyright (c) .NET Foundation and contributors. Licensed under MS-RL.
+Source: https://github.com/wixtoolset/wix/tree/v4.0.6/src/ext/Bal
+Full license: assets/LICENSE-WIX-LOCALIZATION.txt in the source package,
+or LICENSE-WIX-LOCALIZATION.txt alongside the installed application.
+Changes: WUp setup welcome message.

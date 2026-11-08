@@ -1788,7 +1788,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(1080.), px(820.))),
                 titlebar: Some(gpui::TitlebarOptions {
-                    title: Some(format!("WUp v{} | WinGet Package Manager", env!("CARGO_PKG_VERSION")).into()),
+                    title: Some("WUp | WinGet Package Manager".into()),
                     ..Default::default()
                 }),
                 ..Default::default()

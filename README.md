@@ -1,6 +1,8 @@
 # WUp
 
-Rust + GPUI로 만든 Windows용 WinGet 패키지 관리자입니다. 현재 수정본은 v0.1.1이며 창 제목은 `WUp v0.1.1 | WinGet Package Manager`입니다.
+Rust + GPUI로 만든 Windows용 WinGet 패키지 관리자입니다. 현재 수정본은 v0.1.1이며 창 제목은 `WUp | WinGet Package Manager`입니다.
+
+![WUp package manager screenshot](docs/images/wup-screenshot.png)
 
 - 실행 시 업데이트 가능한 프로그램을 자동 조회합니다.
 - 프로그램 이름, 패키지 ID, 현재 버전, 새 버전, 원본, 처리 상태를 표시합니다.
@@ -212,7 +214,7 @@ After a successful run, open **Actions > Windows build > the run > Artifacts** a
 - `WUp-<version>-windows-x64.msi`: per-user installer with a Start menu shortcut, installed under `%LOCALAPPDATA%\Programs\WUp`. Newer MSI versions upgrade the existing install. Older versions are blocked.
 - `SHA256SUMS.txt` and `build-info.json`: checksums, version, commit SHA and workflow run details.
 
-The workflow uses `base patch + github.run_number`, starting from the checked-in Cargo version `0.1.1`: run 1 produces `0.1.2`, run 2 produces `0.1.3`. The title, Windows EXE version resources, MSI product version, and filenames all use the same generated version. A rerun of the same workflow run retains its version; the artifact name includes the attempt number. Manual runs also consume a build number. Failed runs can leave gaps in the sequence.
+The workflow uses `base patch + github.run_number`, starting from the checked-in Cargo version `0.1.1`: run 1 produces `0.1.2`, run 2 produces `0.1.3`. The About dialog, Windows EXE version resources, MSI product version, and filenames all use the same generated version. The window title is `WUp | WinGet Package Manager`, without a version. A rerun of the same workflow run retains its version; the artifact name includes the attempt number. Manual runs also consume a build number. Failed runs can leave gaps in the sequence.
 
 Version edits happen only in the CI checkout; the workflow does not commit version changes back to the repository. Keep the checked-in base patch stable while using this version line. Change the major/minor baseline when starting a new version line. MSI limits are checked before writing; if the generated patch would exceed 65535, bump the minor version and reset the base patch (the workflow counter continues). Keep the workflow file path stable to preserve its run counter.
 
@@ -256,3 +258,5 @@ The application itself is `target/release/wup.exe`; the release EXE is built sep
 Type a package name or ID in the filter field on the same row as the selection and package actions. Filtering is immediate, case-insensitive, and applies to both available updates and the full installed-package list. Separate words with spaces to require all words across the name and ID. The right-hand count shows matching / total packages; X clears the filter.
 
 Select all / deselect all and update / uninstall actions apply to visible packages. Changing the filter deselects packages that become hidden, preventing hidden items from being changed by mistake. Refreshing or switching list modes keeps the filter. The field supports Korean IME composition, selection, keyboard navigation and Ctrl+A/C/V/X. Editing is paused while a package operation or confirmation/about dialog is active.
+
+The EXE setup welcome page displays **Windows packages Update and uninstall**.
