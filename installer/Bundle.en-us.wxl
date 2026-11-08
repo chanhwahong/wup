@@ -3,6 +3,7 @@
 <WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-us" Language="1033">
   <String Id="Caption" Value="[WixBundleName] Setup" />
   <String Id="Title" Value="[WixBundleName]" />
+  <String Id="AppDescription" Value="Windows packages Update and uninstall" />
   <String Id="CheckingForUpdatesLabel" Value="Checking for updates" />
   <String Id="UpdateButton" Value="&amp;Update to version [WixStdBAUpdateAvailable]" />
   <String Id="InstallHeader" Value="Welcome" />

@@ -1,6 +1,6 @@
 # WUp
 
-Rust + GPUI로 만든 Windows용 WinGet 패키지 관리자입니다. 현재 수정본은 v0.1.1이며 창 제목은 `WUp | WinGet Package Manager`입니다.
+Rust + GPUI로 만든 Windows용 WinGet 패키지 관리자입니다.
 
 ![WUp package manager screenshot](docs/images/wup-screenshot.png)
 
@@ -231,16 +231,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Install
 
 For a local portable application only, omit `-Installer` (no .NET SDK required); this creates `dist/wup.exe` and does not overwrite the versioned EXE installer. `scripts/set-build-version.ps1 -BuildNumber N` is intended for a fresh CI checkout and modifies both Cargo files. Local builds otherwise retain the version in Cargo.toml. Commit source and configuration only; do not commit `target/`, `dist/`, or transfer helper directories.
 
-## About
-
-Open **... > About** (Korean: app information) for the application version and a brief description. The dialog follows the selected theme, language and UI scale. The compact layout shows inline green contact links and an orange Buy me a coffee button. Close it with the top-right X or by clicking the backdrop.
-
-- Developer email: [chanhwahong@gmail.com](mailto:chanhwahong@gmail.com)
-- GitHub: https://github.com/chanhwahong/wup
-- Buy me a coffee: https://ko-fi.com/chanhwahong
-
-Links open the default browser or mail application only when clicked.
-
 ## Application icon
 
 WUp uses a balloon emoji-style icon in its executable, window/taskbar, Start menu shortcut, installed-app entry, and header. The icon is embedded, so no external image files are required at runtime.
@@ -259,4 +249,4 @@ Type a package name or ID in the filter field on the same row as the selection a
 
 Select all / deselect all and update / uninstall actions apply to visible packages. Changing the filter deselects packages that become hidden, preventing hidden items from being changed by mistake. Refreshing or switching list modes keeps the filter. The field supports Korean IME composition, selection, keyboard navigation and Ctrl+A/C/V/X. Editing is paused while a package operation or confirmation/about dialog is active.
 
-The EXE setup welcome page displays **Windows packages Update and uninstall**.
+The EXE setup displays **Windows packages Update and uninstall** beneath the WUp heading on every page, including initial installation, repair, uninstall and progress.
