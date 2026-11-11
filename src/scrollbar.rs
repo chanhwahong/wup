@@ -8,10 +8,6 @@ pub struct Geometry {
 }
 
 impl Geometry {
-    pub fn new(viewport: f32, max_scroll: f32, offset: f32) -> Self {
-        Self::scaled(viewport, max_scroll, offset, 1.0)
-    }
-
     pub fn scaled(viewport: f32, max_scroll: f32, offset: f32, scale: f32) -> Self {
         let viewport = viewport.max(0.0);
         let max_scroll = max_scroll.max(0.0);
@@ -50,17 +46,17 @@ mod tests {
     use super::*;
     #[test]
     fn fits_without_scrolling() {
-        let geometry = Geometry::new(400.0, 0.0, 0.0);
+        let geometry = Geometry::scaled(400.0, 0.0, 0.0, 1.0);
         assert_eq!(geometry.thumb_height, 400.0);
         assert_eq!(geometry.offset_for_pointer(150.0, 0.0), 0.0);
         assert_eq!(
-            Geometry::new(0.0, 100.0, 0.0).offset_for_pointer(10.0, 0.0),
+            Geometry::scaled(0.0, 100.0, 0.0, 1.0).offset_for_pointer(10.0, 0.0),
             0.0
         );
     }
     #[test]
     fn maps_thumb_to_content_and_clamps_drag() {
-        let geometry = Geometry::new(400.0, 1200.0, -600.0);
+        let geometry = Geometry::scaled(400.0, 1200.0, -600.0, 1.0);
         assert_eq!(geometry.thumb_height, 100.0);
         assert_eq!(geometry.thumb_top, 150.0);
         assert_eq!(geometry.offset_for_pointer(170.0, 20.0), -600.0);

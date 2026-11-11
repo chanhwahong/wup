@@ -13,6 +13,7 @@ A lightweight Windows package manager built with Rust and GPUI. Browse, filter, 
 - Uninstall selected programs after reviewing a confirmation dialog.
 - Select or deselect all visible packages with one button.
 - Follow running operations with an animated progress ring and execution logs.
+- Track batch update/uninstall progress on the Windows taskbar, even while minimized.
 - Scroll the package list and logs independently using the mouse wheel, scrollbar thumb, or track.
 - Choose from six editor-inspired themes, Korean or English, and an 80–120% UI scale.
 - Open **… → About** for the app version, developer contact, GitHub repository, and coffee donation link.
@@ -51,6 +52,8 @@ Runtime requirements:
 7. Refresh after operations to query the installed state again. Removed programs remain marked as uninstalled until the next refresh.
 
 An installer failure does not stop later queued items. Failed packages can be selected again and retried. Updating accepts package agreements. Individual installers may request administrator approval through UAC; check the logs if an operation fails because of permissions.
+
+Taskbar progress shows processed packages out of the selected batch (for example, 2 of 5 is 40%), including failed attempts. It measures package count rather than download bytes. The indicator clears when the batch finishes or stops.
 
 ### Package filter
 

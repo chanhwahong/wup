@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod batch_progress;
 mod filter_input;
 mod i18n;
 mod icons;
 mod package_filter;
 mod pixel_snap;
 mod scrollbar;
+mod taskbar;
 mod theme;
 mod ui_scale;
 mod winget;
@@ -95,6 +97,8 @@ struct Wup {
     scanning: bool,
     operation: Operation,
     batch: Vec<usize>,
+    batch_progress: batch_progress::BatchProgress,
+    taskbar_progress: taskbar::TaskbarProgress,
     pending_uninstall: Option<Vec<(usize, Package)>>,
     scroll: ScrollHandle,
     log_scroll: ScrollHandle,
@@ -107,13 +111,19 @@ struct Wup {
 }
 
 impl Wup {
-    fn new(demo: bool, cx: &mut Context<Self>) -> Self {
+    fn new(demo: bool, window: &Window, cx: &mut Context<Self>) -> Self {
         let poller = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(100))
                     .await;
-                if this.update(cx, |app, cx| app.poll(cx)).is_err() {
+                if this
+                    .update(cx, |app, cx| {
+                        app.poll(cx);
+                        app.sync_taskbar();
+                    })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -145,6 +155,8 @@ impl Wup {
             scanning: false,
             operation: Operation::Upgrade,
             batch: Vec::new(),
+            batch_progress: batch_progress::BatchProgress::default(),
+            taskbar_progress: taskbar::TaskbarProgress::new(window),
             pending_uninstall: None,
             scroll: ScrollHandle::new(),
             log_scroll: ScrollHandle::new(),
@@ -157,6 +169,10 @@ impl Wup {
         };
         app.refresh(cx);
         app
+    }
+
+    fn sync_taskbar(&mut self) -> bool {
+        self.taskbar_progress.update(self.batch_progress.snapshot())
     }
 
     fn matches_filter(&self, entry: &Entry) -> bool {
@@ -579,6 +595,8 @@ impl Wup {
         if self.locked() || self.demo || packages.is_empty() {
             return;
         }
+        self.batch_progress.start(packages.len());
+        self.sync_taskbar();
         self.batch = packages.iter().map(|(i, _)| *i).collect();
         for (i, _) in &packages {
             self.entries[*i].status = Status::Queued;
@@ -690,6 +708,9 @@ impl Wup {
                 }
                 Event::Finished(index, result) => {
                     if let Some(entry) = self.entries.get_mut(index) {
+                        if matches!(entry.status, Status::Queued | Status::Running) {
+                            self.batch_progress.finish_item();
+                        }
                         let name = entry.package.name.clone();
                         match result {
                             Ok(()) => {
@@ -721,6 +742,7 @@ impl Wup {
                     }
                 }
                 Event::Done { cancelled } => {
+                    self.batch_progress.clear();
                     complete = true;
                     self.busy = false;
                     for entry in &mut self.entries {
@@ -756,6 +778,7 @@ impl Wup {
             }
         }
         if disconnected && self.busy && !complete {
+            self.batch_progress.clear();
             self.busy = false;
             self.scanning = false;
             self.error = true;
@@ -1771,9 +1794,42 @@ fn smoke_test_menus(view: &gpui::Entity<Wup>, cx: &mut App) {
     .detach();
 }
 
+fn smoke_test_taskbar(view: &gpui::Entity<Wup>, cx: &mut App) {
+    let weak = view.downgrade();
+    cx.spawn(async move |cx| {
+        // Exercise the native API without querying or changing installed packages.
+        gpui::Timer::after(Duration::from_millis(500)).await;
+        weak.update(cx, |app, _| app.batch_progress.start(4))
+            .expect("taskbar smoke-test window must remain alive");
+        for completed in 0..=4 {
+            let mut applied = false;
+            for _ in 0..20 {
+                gpui::Timer::after(Duration::from_millis(100)).await;
+                applied = weak.update(cx, |app, _| app.sync_taskbar())
+                    .expect("taskbar smoke-test window must remain alive");
+                if applied { break; }
+            }
+            assert!(applied, "Windows taskbar progress API was unavailable");
+            weak.update(cx, |app, _| {
+                assert_eq!(app.batch_progress.snapshot(), Some(batch_progress::Snapshot {
+                    completed, total: 4,
+                }));
+                app.batch_progress.finish_item();
+            }).expect("taskbar smoke-test window must remain alive");
+        }
+        weak.update(cx, |app, _| {
+            app.batch_progress.clear();
+            assert!(app.sync_taskbar(), "Windows taskbar progress could not be cleared");
+        }).expect("taskbar smoke-test window must remain alive");
+        println!("Taskbar smoke test passed: native progress 0/4 through 4/4 and clear; no package operations performed.");
+        let _ = cx.update(|cx| cx.quit());
+    }).detach();
+}
+
 fn main() {
     let smoke = std::env::args().any(|arg| arg == "--smoke-test-menus");
-    let demo = smoke || std::env::args().any(|arg| arg == "--demo");
+    let taskbar_smoke = std::env::args().any(|arg| arg == "--smoke-test-taskbar");
+    let demo = smoke || taskbar_smoke || std::env::args().any(|arg| arg == "--demo");
     Application::new().run(move |cx: &mut App| {
         filter_input::bind_keys(cx);
         cx.on_window_closed(|cx| {
@@ -1794,11 +1850,14 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| {
-                let view = cx.new(|cx| Wup::new(demo, cx));
+                let view = cx.new(|cx| Wup::new(demo, window, cx));
                 if smoke {
                     let input = view.read(cx).filter_input.clone();
                     input.update(cx, |input, cx| input.smoke_editing(window, cx));
                     smoke_test_menus(&view, cx);
+                }
+                if taskbar_smoke {
+                    smoke_test_taskbar(&view, cx);
                 }
                 let weak = view.downgrade();
                 window.on_window_should_close(cx, move |_, cx| {
