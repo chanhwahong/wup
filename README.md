@@ -55,6 +55,12 @@ An installer failure does not stop later queued items. Failed packages can be se
 
 Taskbar progress shows processed packages out of the selected batch (for example, 2 of 5 is 40%), including failed attempts. It measures package count rather than download bytes. The indicator clears when the batch finishes or stops.
 
+### Hide updates
+
+Select packages with available updates and click **Hide updates (N)**. Hidden packages stay excluded from WUp's update list, update counts, and update actions across restarts and future versions. In **Show all installed packages**, they remain visible with an **Update hidden** status and can still be uninstalled.
+
+Open **… → Manage hidden updates** to restore selected packages or all hidden packages. Preferences apply only to WUp; WinGet settings are unchanged. Demo mode does not save exclusions.
+
 ### Package filter
 
 The filter field shares the toolbar with selection and package actions.

@@ -2,6 +2,7 @@
 
 mod batch_progress;
 mod filter_input;
+mod hidden_updates;
 mod i18n;
 mod icons;
 mod package_filter;
@@ -20,7 +21,7 @@ use gpui::{
 use i18n::{Language, Text};
 use icons::{Icon, icon, spinner};
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -83,6 +84,9 @@ struct Wup {
     theme: Theme,
     show_settings_menu: bool,
     show_about: bool,
+    show_hidden_updates: bool,
+    hidden_updates: hidden_updates::HiddenUpdates,
+    hidden_selection: BTreeSet<String>,
     settings_panel: Option<SettingsPanel>,
     filter_input: gpui::Entity<filter_input::FilterInput>,
     filter_query: String,
@@ -141,6 +145,9 @@ impl Wup {
             theme: Theme::load(),
             show_settings_menu: false,
             show_about: false,
+            show_hidden_updates: false,
+            hidden_updates: hidden_updates::HiddenUpdates::default(),
+            hidden_selection: BTreeSet::new(),
             settings_panel: None,
             filter_input,
             filter_query: String::new(),
@@ -167,7 +174,21 @@ impl Wup {
             demo,
             _poller: poller,
         };
+        let hidden_result = if demo {
+            Ok(hidden_updates::HiddenUpdates::default())
+        } else {
+            hidden_updates::HiddenUpdates::load()
+        };
+        if let Ok(hidden) = &hidden_result {
+            app.hidden_updates = hidden.clone();
+        }
         app.refresh(cx);
+        if let Err(error) = hidden_result {
+            app.log(Text::new(
+                format!("숨김 설정을 읽지 못했습니다: {error}"),
+                format!("Could not load hidden updates: {error}"),
+            ));
+        }
         app
     }
 
@@ -176,7 +197,81 @@ impl Wup {
     }
 
     fn matches_filter(&self, entry: &Entry) -> bool {
-        package_filter::matches(&entry.package.name, &entry.package.id, &self.filter_terms)
+        (self.mode == ListMode::All || !self.hidden_updates.contains(&entry.package.id))
+            && package_filter::matches(&entry.package.name, &entry.package.id, &self.filter_terms)
+    }
+
+    fn can_upgrade(&self, entry: &Entry) -> bool {
+        entry.can_upgrade() && !self.hidden_updates.contains(&entry.package.id)
+    }
+
+    fn save_hidden_updates(
+        &mut self,
+        hidden: hidden_updates::HiddenUpdates,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.demo {
+            if let Err(error) = hidden.save() {
+                self.log(Text::new(
+                    format!("숨김 설정을 저장하지 못했습니다: {error}"),
+                    format!("Could not save hidden updates: {error}"),
+                ));
+                self.message = Text::new(
+                    "숨김 설정 저장에 실패했습니다. 실행 로그를 확인하세요.",
+                    "Could not save hidden updates. Check the execution log.",
+                );
+                self.error = true;
+                self.show_logs = true;
+                cx.notify();
+                return;
+            }
+        }
+        self.hidden_updates = hidden;
+        self.hidden_selection.clear();
+        for entry in &mut self.entries {
+            entry.selected = false;
+        }
+        self.scroll.set_offset(point(px(0.), px(0.)));
+        self.dragging = None;
+        self.error = false;
+        self.message = Text::new(
+            "업데이트 숨김 설정을 변경했습니다.",
+            "Hidden update preferences changed.",
+        );
+        cx.notify();
+    }
+
+    fn hide_selected_updates(&mut self, cx: &mut Context<Self>) {
+        if self.locked() {
+            return;
+        }
+        let packages = self.selected_packages(Operation::Upgrade);
+        if packages.is_empty() {
+            return;
+        }
+        let mut hidden = self.hidden_updates.clone();
+        for (_, package) in packages {
+            hidden.insert(&package.id, &package.name);
+        }
+        self.save_hidden_updates(hidden, cx);
+    }
+
+    fn restore_hidden_updates(&mut self, all: bool, cx: &mut Context<Self>) {
+        if !self.show_hidden_updates || self.busy {
+            return;
+        }
+        if (!all && self.hidden_selection.is_empty()) || self.hidden_updates.len() == 0 {
+            return;
+        }
+        let mut hidden = self.hidden_updates.clone();
+        if all {
+            hidden = hidden_updates::HiddenUpdates::default();
+        } else {
+            for id in &self.hidden_selection {
+                hidden.remove(id);
+            }
+        }
+        self.save_hidden_updates(hidden, cx);
     }
 
     fn apply_filter(&mut self, query: String, cx: &mut Context<Self>) {
@@ -198,7 +293,7 @@ impl Wup {
     }
 
     fn locked(&self) -> bool {
-        self.busy || self.pending_uninstall.is_some() || self.show_about
+        self.busy || self.pending_uninstall.is_some() || self.show_about || self.show_hidden_updates
     }
 
     fn close_settings(&mut self) {
@@ -302,6 +397,38 @@ impl Wup {
                 }),
             )
             .child(div().h(px(1.)).my_1().bg(rgb(palette.border)))
+            .child(
+                div()
+                    .id("hidden-updates-menu-item")
+                    .h(ui_len(42.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .rounded_md()
+                    .when(!self.locked(), |d| {
+                        d.cursor_pointer().hover(|s| s.bg(rgb(palette.hover)))
+                    })
+                    .child(icon(Icon::Packages, palette.text))
+                    .child(format!(
+                        "{} ({})",
+                        language.t("숨긴 업데이트 관리", "Manage hidden updates"),
+                        self.hidden_updates.len()
+                    ))
+                    .on_mouse_move(cx.listener(|this, _, _, cx| {
+                        this.settings_panel = None;
+                        cx.notify();
+                    }))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if !this.locked() {
+                            this.close_settings();
+                            this.hidden_selection.clear();
+                            this.show_hidden_updates = true;
+                            cx.stop_propagation();
+                            cx.notify();
+                        }
+                    })),
+            )
             .child(
                 div()
                     .id("about-menu-item")
@@ -527,7 +654,7 @@ impl Wup {
                 e.selected
                     && self.matches_filter(e)
                     && e.can_select()
-                    && (operation == Operation::Uninstall || e.can_upgrade())
+                    && (operation == Operation::Uninstall || self.can_upgrade(e))
             })
             .map(|(i, e)| (i, e.package.clone()))
             .collect()
@@ -539,6 +666,7 @@ impl Wup {
         }
         for entry in &mut self.entries {
             if entry.can_select()
+                && (self.mode == ListMode::All || !self.hidden_updates.contains(&entry.package.id))
                 && package_filter::matches(
                     &entry.package.name,
                     &entry.package.id,
@@ -1026,6 +1154,53 @@ impl Wup {
             )
     }
 
+    fn render_hidden_updates(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
+        let language = self.language;
+        div().id("hidden-updates-backdrop").absolute().inset_0().p_6()
+            .flex().items_center().justify_center().occlude().bg(gpui::rgba(0x000000b0))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                this.show_hidden_updates = false;
+                cx.stop_propagation();
+                cx.notify();
+            }))
+            .child(div().id("hidden-updates-dialog").w(ui_len(650.)).max_w_full().max_h_full()
+                .flex().flex_col().gap_4().p_5().rounded_lg().shadow_lg()
+                .bg(rgb(palette.panel)).border_1().border_color(rgb(palette.border)).occlude()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(div().text_lg().font_weight(gpui::FontWeight::BOLD)
+                    .child(format!("{} ({})", language.t("숨긴 업데이트 관리", "Manage hidden updates"), self.hidden_updates.len())))
+                .child(div().text_color(rgb(palette.muted)).child(language.t(
+                    "숨긴 패키지는 WUp의 업데이트 목록과 업데이트 대상에서 제외됩니다. 새 버전에도 적용됩니다.",
+                    "Hidden packages are excluded from WUp's update list and update actions, including future versions.")))
+                .child(div().id("hidden-updates-list").max_h(ui_len(280.)).min_h_0().overflow_y_scroll()
+                    .when(self.hidden_updates.len() == 0, |d| d.child(div().py_3().child(language.t("숨긴 업데이트가 없습니다.", "No hidden updates."))))
+                    .children(self.hidden_updates.iter().enumerate().map(|(index, (id, name))| {
+                        let id = id.clone();
+                        let checked = self.hidden_selection.contains(&id);
+                        div().id(("hidden-update-row", index)).flex().items_center().gap_3().p_3()
+                            .border_b_1().border_color(rgb(palette.border)).cursor_pointer()
+                            .hover(|s| s.bg(rgb(palette.hover)))
+                            .child(icon(if checked { Icon::CheckSquare } else { Icon::Square }, palette.accent))
+                            .child(div().flex_1().min_w_0().child(name.clone())
+                                .child(div().text_xs().text_color(rgb(palette.muted)).child(id.clone())))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.hidden_selection.remove(&id) {
+                                    this.hidden_selection.insert(id.clone());
+                                }
+                                cx.stop_propagation();
+                                cx.notify();
+                            }))
+                    })))
+                .child(div().flex().flex_wrap().justify_end().gap_2()
+                    .child(button(palette, "restore-hidden-selected", format!("{} ({})", language.t("선택 숨기기 해제", "Restore selected"), self.hidden_selection.len()), !self.hidden_selection.is_empty(), false)
+                        .on_click(cx.listener(|this, _, _, cx| this.restore_hidden_updates(false, cx))))
+                    .child(button(palette, "restore-hidden-all", language.t("전체 숨기기 해제", "Restore all"), self.hidden_updates.len() > 0, false)
+                        .on_click(cx.listener(|this, _, _, cx| this.restore_hidden_updates(true, cx))))
+                    .child(button(palette, "close-hidden-updates", language.t("닫기", "Close"), true, false)
+                        .on_click(cx.listener(|this, _, _, cx| { this.show_hidden_updates = false; cx.notify(); })))))
+    }
+
     fn render_about(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = self.theme.palette();
         let language = self.language;
@@ -1180,6 +1355,8 @@ fn button(
         "toggle-all" => Icon::Packages,
         "uninstall" | "confirm-uninstall" => Icon::Trash,
         "upgrade" => Icon::Upgrade,
+        "hide-updates" => Icon::Packages,
+        "restore-hidden-selected" | "restore-hidden-all" => Icon::Refresh,
         "logs" => Icon::Log,
         "copy-logs" => Icon::Copy,
         "stop" => Icon::Stop,
@@ -1281,7 +1458,7 @@ impl Render for Wup {
         let updatable = self
             .entries
             .iter()
-            .filter(|e| self.matches_filter(e) && e.can_upgrade())
+            .filter(|e| self.matches_filter(e) && self.can_upgrade(e))
             .count();
         let unlocked = !self.locked();
         let selectable = self
@@ -1350,6 +1527,10 @@ impl Render for Wup {
                         .t("ID 잘림 · 작업 불가", "Truncated ID · unavailable")
                         .into(),
                     palette.danger,
+                ),
+                Status::Ready if self.hidden_updates.contains(&entry.package.id) => (
+                    language.t("업데이트 숨김", "Update hidden").into(),
+                    palette.muted,
                 ),
                 Status::Ready if entry.can_upgrade() => (
                     language.t("업데이트 가능", "Update available").into(),
@@ -1549,6 +1730,8 @@ impl Render for Wup {
                         })))))
                 .when(self.busy && !self.scanning, |d| d.child(button(palette, "stop", language.t("완료 후 중단", "Stop after current"), !self.stop.load(Ordering::Relaxed), false)
                     .on_click(cx.listener(|this, _, _, cx| { this.stop.store(true, Ordering::Relaxed); this.message = Text::new("현재 작업이 끝나면 남은 작업을 중단합니다.", "Remaining tasks will stop after the current operation finishes."); cx.notify(); }))))
+                .child(button(palette, "hide-updates", format!("{} ({updatable_selected})", language.t("업데이트 숨기기", "Hide updates")), unlocked && updatable_selected > 0, false)
+                    .on_click(cx.listener(|this, _, _, cx| this.hide_selected_updates(cx))))
                 .child(button(palette, "uninstall", format!("{} ({selected})", language.t("제거", "Uninstall")), unlocked && selected > 0, false)
                     .when(unlocked && selected > 0, |d| d.text_color(rgb(palette.danger)).border_color(rgb(palette.danger)))
                     .on_click(cx.listener(|this, _, _, cx| this.request_uninstall(cx))))
@@ -1655,6 +1838,9 @@ impl Render for Wup {
             .when(self.show_about, |d| {
                 d.child(deferred(self.render_about(cx)).with_priority(3))
             })
+            .when(self.show_hidden_updates, |d| {
+                d.child(deferred(self.render_hidden_updates(cx)).with_priority(3))
+            })
     }
 }
 
@@ -1733,6 +1919,48 @@ fn smoke_test_menus(view: &gpui::Entity<Wup>, cx: &mut App) {
             assert!(frames.load(Ordering::Relaxed) > before, "filtered list did not render");
         }
         println!("Package filtering passed: visible-only selection, stable indices, empty results and clearing.");
+        weak.update(cx, |app, cx| {
+            let targets: Vec<_> = app.entries.iter().enumerate()
+                .filter(|(_, entry)| app.can_upgrade(entry)).take(2)
+                .map(|(index, entry)| (index, entry.package.id.clone())).collect();
+            assert_eq!(targets.len(), 2);
+            for (index, _) in &targets { app.entries[*index].selected = true; }
+            let before = app.entries.iter().filter(|entry| app.matches_filter(entry)).count();
+            app.hide_selected_updates(cx);
+            assert_eq!(app.hidden_updates.len(), 2);
+            assert_eq!(app.entries.iter().filter(|entry| app.matches_filter(entry)).count(), before - 2);
+            assert!(app.entries.iter().all(|entry| !entry.selected));
+            app.apply_filter(targets[0].1.clone(), cx);
+            assert!(!app.matches_filter(&app.entries[targets[0].0]));
+            app.apply_filter(String::new(), cx);
+            app.mode = ListMode::All;
+            app.set_selection(true, cx);
+            for (index, id) in &targets {
+                assert!(app.matches_filter(&app.entries[*index]));
+                assert!(!app.can_upgrade(&app.entries[*index]));
+                assert!(app.selected_packages(Operation::Uninstall).iter().any(|(_, p)| &p.id == id));
+                assert!(!app.selected_packages(Operation::Upgrade).iter().any(|(_, p)| &p.id == id));
+            }
+            app.mode = ListMode::Updates;
+            app.refresh(cx);
+            app.set_selection(true, cx);
+            for (_, id) in &targets {
+                assert!(!app.selected_packages(Operation::Upgrade).iter().any(|(_, p)| &p.id == id));
+                assert!(app.entries.iter().filter(|e| &e.package.id == id).all(|e| !e.selected));
+            }
+            app.show_hidden_updates = true;
+            assert!(app.locked());
+            app.hidden_selection.insert(targets[0].1.clone());
+            app.restore_hidden_updates(false, cx);
+            assert!(!app.hidden_updates.contains(&targets[0].1));
+            assert!(app.hidden_updates.contains(&targets[1].1));
+            assert!(app.hidden_selection.is_empty());
+            app.restore_hidden_updates(true, cx);
+            assert_eq!(app.hidden_updates.len(), 0);
+            app.show_hidden_updates = false;
+            assert!(!app.locked());
+        }).expect("hidden update smoke-test window must remain alive");
+        println!("Hidden update actions passed: counts, search, selection, update exclusion, uninstall, refresh and restore.");
         for percent in [80, 95, 100, 120] {
             for panel in [
                 None,
@@ -1788,6 +2016,31 @@ fn smoke_test_menus(view: &gpui::Entity<Wup>, cx: &mut App) {
             cx.notify();
         }).expect("About smoke-test window must remain alive");
         assert!(gap_checks.load(Ordering::Relaxed) > 0, "no actual row gaps were checked");
+        for percent in [80, 120] {
+            for language in Language::ALL {
+                for populated in [true, false] {
+                    let before = frames.load(Ordering::Relaxed);
+                    weak.update(cx, |app, cx| {
+                        app.ui_scale = UiScale::new(percent);
+                        app.language = language;
+                        app.show_hidden_updates = true;
+                        app.hidden_updates = hidden_updates::HiddenUpdates::default();
+                        if populated {
+                            for index in 0..40 {
+                                app.hidden_updates.insert(&format!("Example.Hidden{index}"), "숨긴 업데이트 / Hidden application");
+                            }
+                        }
+                        cx.notify();
+                    }).expect("hidden update dialog must remain alive");
+                    for _ in 0..60 {
+                        cx.background_executor().timer(Duration::from_millis(50)).await;
+                        if frames.load(Ordering::Relaxed) > before { break; }
+                    }
+                    assert!(frames.load(Ordering::Relaxed) > before, "hidden update dialog did not render");
+                }
+            }
+        }
+        println!("Hidden update dialog rendered: populated/empty, Korean/English, 80%/120%.");
         println!("Rendering smoke test passed: main/theme/language/scale at 80%, 95%, 100%, 120%, including fractional scrolling and About in Korean/English with light/dark themes; {} actual row gaps checked.", gap_checks.load(Ordering::Relaxed));
         let _ = cx.update(|cx| cx.quit());
     })
