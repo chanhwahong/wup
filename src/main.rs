@@ -83,6 +83,7 @@ struct Wup {
     language: Language,
     theme: Theme,
     show_settings_menu: bool,
+    show_package_actions: bool,
     show_about: bool,
     show_hidden_updates: bool,
     hidden_updates: hidden_updates::HiddenUpdates,
@@ -110,6 +111,7 @@ struct Wup {
     message: Text,
     error: bool,
     show_logs: bool,
+    unread_logs: bool,
     demo: bool,
     _poller: Task<()>,
 }
@@ -144,6 +146,7 @@ impl Wup {
             language: Language::load(),
             theme: Theme::load(),
             show_settings_menu: false,
+            show_package_actions: false,
             show_about: false,
             show_hidden_updates: false,
             hidden_updates: hidden_updates::HiddenUpdates::default(),
@@ -171,6 +174,7 @@ impl Wup {
             message: Text::default(),
             error: false,
             show_logs: false,
+            unread_logs: false,
             demo,
             _poller: poller,
         };
@@ -221,7 +225,6 @@ impl Wup {
                     "Could not save hidden updates. Check the execution log.",
                 );
                 self.error = true;
-                self.show_logs = true;
                 cx.notify();
                 return;
             }
@@ -245,7 +248,7 @@ impl Wup {
         if self.locked() {
             return;
         }
-        let packages = self.selected_packages(Operation::Upgrade);
+        let packages = self.selected_hideable_packages();
         if packages.is_empty() {
             return;
         }
@@ -298,7 +301,73 @@ impl Wup {
 
     fn close_settings(&mut self) {
         self.show_settings_menu = false;
+        self.show_package_actions = false;
         self.settings_panel = None;
+    }
+
+    fn render_package_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
+        let language = self.language;
+        let selected = self.selected_packages(Operation::Uninstall).len();
+        let hideable = self.selected_hideable_packages().len();
+        let enabled = !self.locked();
+        div()
+            .id("package-actions-menu")
+            .absolute()
+            .top_full()
+            .right_0()
+            .mt_2()
+            .w(ui_len(280.))
+            .p_1()
+            .rounded_lg()
+            .border_1()
+            .border_color(rgb(palette.border))
+            .bg(rgb(palette.panel))
+            .shadow_lg()
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                button(
+                    palette,
+                    "uninstall",
+                    format!("{} ({selected})", language.t("제거", "Uninstall")),
+                    enabled && selected > 0,
+                    false,
+                )
+                .w_full()
+                .border_0()
+                .justify_start()
+                .when(enabled && selected > 0, |d| {
+                    d.text_color(rgb(palette.danger))
+                })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.close_settings();
+                    this.request_uninstall(cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                })),
+            )
+            .child(
+                button(
+                    palette,
+                    "hide-updates",
+                    format!(
+                        "{} ({hideable})",
+                        language.t("업데이트 숨기기", "Hide updates")
+                    ),
+                    enabled && hideable > 0,
+                    false,
+                )
+                .w_full()
+                .border_0()
+                .justify_start()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.close_settings();
+                    this.hide_selected_updates(cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                })),
+            )
     }
 
     fn render_settings_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -521,7 +590,6 @@ impl Wup {
                 format!("배율은 적용했지만 설정을 저장하지 못했습니다: {error}"),
                 format!("UI scale applied, but preferences could not be saved: {error}"),
             ));
-            self.show_logs = true;
         }
         cx.notify();
     }
@@ -572,7 +640,6 @@ impl Wup {
                 format!("테마는 적용했지만 설정을 저장하지 못했습니다: {error}"),
                 format!("Theme applied, but preferences could not be saved: {error}"),
             ));
-            self.show_logs = true;
         }
         cx.notify();
     }
@@ -585,7 +652,6 @@ impl Wup {
                 format!("언어는 적용했지만 설정을 저장하지 못했습니다: {error}"),
                 format!("Language applied, but preferences could not be saved: {error}"),
             ));
-            self.show_logs = true;
         }
         cx.notify();
     }
@@ -594,6 +660,7 @@ impl Wup {
         if self.locked() {
             return;
         }
+        self.close_settings();
         self.entries.clear();
         self.batch.clear();
         self.scroll.set_offset(point(px(0.), px(0.)));
@@ -657,6 +724,13 @@ impl Wup {
                     && (operation == Operation::Uninstall || self.can_upgrade(e))
             })
             .map(|(i, e)| (i, e.package.clone()))
+            .collect()
+    }
+
+    fn selected_hideable_packages(&self) -> Vec<(usize, Package)> {
+        self.selected_packages(Operation::Uninstall)
+            .into_iter()
+            .filter(|(_, package)| !self.hidden_updates.contains(&package.id))
             .collect()
     }
 
@@ -736,7 +810,6 @@ impl Wup {
         self.scanning = false;
         self.operation = operation;
         self.error = false;
-        self.show_logs = true;
         self.message = Text::new(
             format!(
                 "선택한 {}개 패키지 {}를 시작합니다…",
@@ -758,6 +831,17 @@ impl Wup {
             self.logs.pop_front();
         }
         self.logs.push_back(message.into().limited(4096));
+        if !self.show_logs {
+            self.unread_logs = true;
+        }
+    }
+
+    fn toggle_logs(&mut self, cx: &mut Context<Self>) {
+        self.show_logs = !self.show_logs;
+        if self.show_logs {
+            self.unread_logs = false;
+        }
+        cx.notify();
     }
 
     fn poll(&mut self, cx: &mut Context<Self>) {
@@ -812,7 +896,6 @@ impl Wup {
                         Err(error) => {
                             self.message = error.clone();
                             self.error = true;
-                            self.show_logs = true;
                             self.log(error);
                         }
                     }
@@ -910,7 +993,6 @@ impl Wup {
             self.busy = false;
             self.scanning = false;
             self.error = true;
-            self.show_logs = true;
             self.message = Text::new(
                 "작업 연결이 끊어졌습니다. 로그와 설치 상태를 확인하세요.",
                 "The worker disconnected. Check the logs and installed state.",
@@ -920,6 +1002,7 @@ impl Wup {
                     entry.status = Status::Skipped;
                 }
             }
+            self.log(self.message.clone());
         }
         if complete || disconnected {
             self.receiver = None;
@@ -1356,6 +1439,7 @@ fn button(
         "uninstall" | "confirm-uninstall" => Icon::Trash,
         "upgrade" => Icon::Upgrade,
         "hide-updates" => Icon::Packages,
+        "package-actions" => Icon::Packages,
         "restore-hidden-selected" | "restore-hidden-all" => Icon::Refresh,
         "logs" => Icon::Log,
         "copy-logs" => Icon::Copy,
@@ -1412,9 +1496,10 @@ fn button(
         })
         .child(icon(symbol, icon_color))
         .child(label)
-        .when(matches!(id, "language" | "theme"), |d| {
-            d.child(icon(Icon::ChevronDown, icon_color))
-        })
+        .when(
+            matches!(id, "language" | "theme" | "package-actions"),
+            |d| d.child(icon(Icon::ChevronDown, icon_color)),
+        )
 }
 
 fn metric(palette: Palette, label: &'static str, value: usize, color: u32) -> Div {
@@ -1695,6 +1780,7 @@ impl Render for Wup {
                         .child(icon(Icon::More, palette.text))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if this.pending_uninstall.is_none() {
+                                this.show_package_actions = false;
                                 this.show_settings_menu = !this.show_settings_menu;
                                 this.settings_panel = None;
                                 cx.notify();
@@ -1730,11 +1816,21 @@ impl Render for Wup {
                         })))))
                 .when(self.busy && !self.scanning, |d| d.child(button(palette, "stop", language.t("완료 후 중단", "Stop after current"), !self.stop.load(Ordering::Relaxed), false)
                     .on_click(cx.listener(|this, _, _, cx| { this.stop.store(true, Ordering::Relaxed); this.message = Text::new("현재 작업이 끝나면 남은 작업을 중단합니다.", "Remaining tasks will stop after the current operation finishes."); cx.notify(); }))))
-                .child(button(palette, "hide-updates", format!("{} ({updatable_selected})", language.t("업데이트 숨기기", "Hide updates")), unlocked && updatable_selected > 0, false)
-                    .on_click(cx.listener(|this, _, _, cx| this.hide_selected_updates(cx))))
-                .child(button(palette, "uninstall", format!("{} ({selected})", language.t("제거", "Uninstall")), unlocked && selected > 0, false)
-                    .when(unlocked && selected > 0, |d| d.text_color(rgb(palette.danger)).border_color(rgb(palette.danger)))
-                    .on_click(cx.listener(|this, _, _, cx| this.request_uninstall(cx))))
+                .child(div().relative().flex_shrink_0()
+                    .child(button(palette, "package-actions", language.t("패키지 작업", "Package actions"), unlocked && selected > 0, false)
+                        .when(self.show_package_actions, |d| d.border_color(rgb(palette.accent)))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if !this.locked() && !this.selected_packages(Operation::Uninstall).is_empty() {
+                                let open = !this.show_package_actions;
+                                this.close_settings();
+                                this.show_package_actions = open;
+                                cx.stop_propagation();
+                                cx.notify();
+                            }
+                        })))
+                    .when(self.show_package_actions && unlocked, |d| {
+                        d.child(deferred(self.render_package_actions(cx)).with_priority(2))
+                    }))
                 .child(button(palette, "upgrade", format!("{} ({updatable_selected})", language.t("업데이트", "Update")), unlocked && updatable_selected > 0 && !self.demo, true)
                     .on_click(cx.listener(|this, _, _, cx| { let packages = this.selected_packages(Operation::Upgrade); this.start_operation(Operation::Upgrade, packages, cx); }))))
             .child(div().flex_1().min_h_0().flex().flex_col().rounded_lg().border_1().border_color(rgb(palette.border)).overflow_hidden()
@@ -1747,7 +1843,10 @@ impl Render for Wup {
             .child(div().text_xs().text_color(rgb(palette.muted)).child(language.t("업데이트 실행 시 패키지 약관에 동의합니다. 프로그램 제거는 확인 후 실행합니다. 관리자 승인이 필요할 수 있습니다.", "Updating accepts package agreements. Uninstall requires confirmation. Administrator approval may be required.")))
             .child(div().flex().flex_wrap().items_center().gap_2()
                 .child(button(palette, "logs", if self.show_logs { language.t("실행 로그 접기", "Hide logs") } else { language.t("실행 로그 보기", "Show logs") }, true, false)
-                    .on_click(cx.listener(|this, _, _, cx| { this.show_logs = !this.show_logs; cx.notify(); })))
+                    .relative()
+                    .when(!self.show_logs && self.unread_logs, |d| d.child(div().id("unread-logs-dot")
+                        .absolute().top(ui_len(5.)).right(ui_len(5.)).size(ui_len(7.)).rounded_full().bg(rgb(0xef4444))))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_logs(cx))))
                 .when(self.show_logs, |d| {
                     d.child(button(palette, "copy-logs", language.t("로그 복사", "Copy logs"), true, false)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -1802,7 +1901,8 @@ impl Render for Wup {
             .text_sm()
             .child(content)
             .when(
-                self.show_settings_menu && self.pending_uninstall.is_none(),
+                (self.show_settings_menu || self.show_package_actions)
+                    && self.pending_uninstall.is_none(),
                 |d| {
                     d.child(
                         deferred(
@@ -1891,6 +1991,35 @@ fn smoke_test_menus(view: &gpui::Entity<Wup>, cx: &mut App) {
     });
     let weak = view.downgrade();
     cx.spawn(async move |cx| {
+        weak.update(cx, |app, cx| {
+            assert!(!app.show_logs && !app.unread_logs);
+            app.log("Unread log smoke test");
+            assert!(!app.show_logs && app.unread_logs);
+            app.toggle_logs(cx);
+            assert!(app.show_logs && !app.unread_logs);
+            app.log("Visible logs are already read");
+            assert!(!app.unread_logs);
+            app.toggle_logs(cx);
+            assert!(!app.show_logs && !app.unread_logs);
+            let (tx, rx) = mpsc::channel();
+            app.receiver = Some(rx);
+            app.scanning = true;
+            tx.send(Event::Log("Ordinary scan output".into())).unwrap();
+            app.poll(cx);
+            assert!(!app.show_logs && !app.unread_logs);
+            app.scanning = false;
+            app.busy = true;
+            tx.send(Event::Log("Update output".into())).unwrap();
+            tx.send(Event::Done { cancelled: false }).unwrap();
+            app.poll(cx);
+            assert!(!app.show_logs && app.unread_logs);
+            app.toggle_logs(cx);
+            assert!(app.show_logs && !app.unread_logs);
+            app.toggle_logs(cx);
+            app.log("New output after closing the panel");
+            assert!(!app.show_logs && app.unread_logs);
+        }).expect("log notification test window must remain alive");
+        println!("Log notifications passed: panel stays closed, unread clears on open, visible logs stay read, scan output is ignored and new output restores the dot.");
         // Filtering must retain original entry indices and never operate on hidden rows.
         weak.update(cx, |app, cx| {
             app.apply_filter("example.app2".into(), cx);
@@ -1961,6 +2090,32 @@ fn smoke_test_menus(view: &gpui::Entity<Wup>, cx: &mut App) {
             assert!(!app.locked());
         }).expect("hidden update smoke-test window must remain alive");
         println!("Hidden update actions passed: counts, search, selection, update exclusion, uninstall, refresh and restore.");
+        weak.update(cx, |app, cx| {
+            app.mode = ListMode::All;
+            app.refresh(cx);
+            let index = app.entries.iter().position(|e| e.can_select() && !e.package.can_upgrade()).unwrap();
+            let id = app.entries[index].package.id.clone();
+            app.entries[index].selected = true;
+            assert_eq!(app.selected_hideable_packages().len(), 1);
+            assert!(app.selected_packages(Operation::Upgrade).is_empty());
+            app.hide_selected_updates(cx);
+            assert!(app.hidden_updates.contains(&id));
+            assert!(app.matches_filter(&app.entries[index]));
+            app.entries[index].selected = true;
+            assert!(app.selected_hideable_packages().is_empty(), "already-hidden packages must not count again");
+            assert_eq!(app.selected_packages(Operation::Uninstall).len(), 1);
+            app.entries[index].package.available = "9.0.0".into();
+            app.entries[index].package.source = "winget".into();
+            assert!(app.entries[index].package.can_upgrade());
+            assert!(app.selected_packages(Operation::Upgrade).is_empty());
+            app.mode = ListMode::Updates;
+            assert!(!app.matches_filter(&app.entries[index]));
+            app.show_hidden_updates = true;
+            app.restore_hidden_updates(true, cx);
+            app.show_hidden_updates = false;
+            app.refresh(cx);
+        }).expect("installed package hiding test window must remain alive");
+        println!("Installed package hiding passed: hide before updates exist, avoid duplicate counts, retain uninstall and exclude future updates.");
         for percent in [80, 95, 100, 120] {
             for panel in [
                 None,
@@ -2016,6 +2171,29 @@ fn smoke_test_menus(view: &gpui::Entity<Wup>, cx: &mut App) {
             cx.notify();
         }).expect("About smoke-test window must remain alive");
         assert!(gap_checks.load(Ordering::Relaxed) > 0, "no actual row gaps were checked");
+        for percent in [80, 120] {
+            for language in Language::ALL {
+                for mode in [ListMode::Updates, ListMode::All] {
+                    let before = frames.load(Ordering::Relaxed);
+                    weak.update(cx, |app, cx| {
+                        app.ui_scale = UiScale::new(percent);
+                        app.language = language;
+                        app.mode = mode;
+                        app.refresh(cx);
+                        app.set_selection(true, cx);
+                        app.show_package_actions = true;
+                        cx.notify();
+                    }).expect("package actions menu window must remain alive");
+                    for _ in 0..60 {
+                        cx.background_executor().timer(Duration::from_millis(50)).await;
+                        if frames.load(Ordering::Relaxed) > before { break; }
+                    }
+                    assert!(frames.load(Ordering::Relaxed) > before, "package actions menu did not render");
+                    weak.update(cx, |app, _| app.close_settings()).unwrap();
+                }
+            }
+        }
+        println!("Package actions menu rendered: both list modes, Korean/English, 80%/120%.");
         for percent in [80, 120] {
             for language in Language::ALL {
                 for populated in [true, false] {

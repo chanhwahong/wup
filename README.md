@@ -47,7 +47,7 @@ Runtime requirements:
 2. Click rows to select packages, or use **Select all / Deselect all**.
 3. Click **Update (N)** to update selected packages with an available update.
 4. Enable **Show all installed packages** to browse installed programs. Switching modes reloads the list and clears selection.
-5. To remove programs, select them, click **Uninstall (N)**, review the names, IDs, and versions, then confirm.
+5. To remove programs, select them, choose **Package actions ▾ → Uninstall (N)**, review the names, IDs, and versions, then confirm.
 6. Use **Stop after current** to cancel queued work after the current operation finishes.
 7. Refresh after operations to query the installed state again. Removed programs remain marked as uninstalled until the next refresh.
 
@@ -57,7 +57,7 @@ Taskbar progress shows processed packages out of the selected batch (for example
 
 ### Hide updates
 
-Select packages with available updates and click **Hide updates (N)**. Hidden packages stay excluded from WUp's update list, update counts, and update actions across restarts and future versions. In **Show all installed packages**, they remain visible with an **Update hidden** status and can still be uninstalled.
+Select packages and choose **Package actions ▾ → Hide updates (N)**. In **Show all installed packages**, you can hide packages even before updates are available. Already-hidden packages are excluded from the hide count. Hidden packages stay excluded from WUp's update list, update counts, and update actions across restarts and future versions. In the installed list, they remain visible with an **Update hidden** status and can still be uninstalled.
 
 Open **… → Manage hidden updates** to restore selected packages or all hidden packages. Preferences apply only to WUp; WinGet settings are unchanged. Demo mode does not save exclusions.
 
@@ -75,6 +75,8 @@ Filtering applies to both list modes. Select all / deselect all, update, and uni
 ### Logs
 
 Use **Show logs** to view execution output and **Copy logs** to copy it. The log panel has its own scrollbar. Ordinary refresh/query output is omitted; query errors and update/uninstall logs remain available.
+
+Starting an update or uninstall does not open the log panel automatically. New logs received while the panel is closed add a red dot to **Show logs**. Opening the panel clears the dot; logs received while it is open are treated as read.
 
 WUp retains up to 1,000 recent log entries in memory and displays the latest 120. App-generated messages follow the selected language. Package names, IDs, and raw WinGet/installer output are preserved.
 
